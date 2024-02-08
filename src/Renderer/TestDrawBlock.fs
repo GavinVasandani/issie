@@ -1,5 +1,8 @@
 ﻿module TestDrawBlock
 open GenerateData
+open SymbolView
+open Symbol
+open SymbolResizeHelpers
 open Elmish
 
 
@@ -237,17 +240,58 @@ module HLPTick3 =
 
         // Rotate a symbol
         let rotateSymbol (symLabel: string) (rotate: Rotation) (model: SheetT.Model) : (SheetT.Model) =
-            failwithf "Not Implemented"
+            
+            
+            // 1. Find the symbol in the model by symLabel.
+            //let foundSymbol = model.Symbols |> List.tryFind (fun sym -> sym.Label = symLabel)
+            // 2. Apply the rotation to the symbol. This might involve updating the symbol's rotation property or transforming its coordinates.
+            // 3. Return the updated model with the rotated symbol.
+
+            let symbolsMap = model.Wire.Symbol.Symbols //fine
+            let getSymbol = //can use symLabel as para
+                mapValues symbolsMap
+                |> Array.tryFind (fun sym -> caseInvariantEqual sym.Component.Label symLabel)
+                |> function | Some x -> Ok x | None -> Error "Can't find symbol with label '{symPort.Label}'"
+
+            match getSymbol with
+            | Ok symbol ->
+                let rotatedSymbol = SymbolResizeHelpers.rotateSymbol rotate symbol
+                // Create a new map with the rotated symbol. Assuming Symbol has a unique identifier or label for key.
+                let updatedSymbolsMap = Map.add symbol.Id rotatedSymbol symbolsMap
+                
+                //let newModel = { model with model.Wire.Symbol.Symbols = updatedSymbols }
+                { model with Wire = { model.Wire with Symbol = { model.Wire.Symbol with Symbols = updatedSymbolsMap } } }
+
+            | _ -> model
+
 
         // Flip a symbol
         let flipSymbol (symLabel: string) (flip: SymbolT.FlipType) (model: SheetT.Model) : (SheetT.Model) =
-            failwithf "Not Implemented"
+            //failwithf "Not Implemented"
+
+            let symbolsMap = model.Wire.Symbol.Symbols //fine
+            let getSymbol = //can use symLabel as para
+                mapValues symbolsMap
+                |> Array.tryFind (fun sym -> caseInvariantEqual sym.Component.Label symLabel)
+                |> function | Some x -> Ok x | None -> Error "Can't find symbol with label '{symPort.Label}'"
+
+            match getSymbol with
+            | Ok symbol ->
+                let flippedSymbol = SymbolResizeHelpers.flipSymbol flip symbol
+                // Create a new map with the rotated symbol. Assuming Symbol has a unique identifier or label for key.
+                let updatedSymbolsMap = Map.add symbol.Id flippedSymbol symbolsMap
+    
+                //let newModel = { model with model.Wire.Symbol.Symbols = updatedSymbols }
+                { model with Wire = { model.Wire with Symbol = { model.Wire.Symbol with Symbols = updatedSymbolsMap } } }
+
+            | _ -> model
 
         /// Add a (newly routed) wire, source specifies the Output port, target the Input port.
         /// Return an error if either of the two ports specified is invalid, or if the wire duplicates and existing one.
         /// The wire created will be smart routed but not separated from other wires: for a nice schematic
         /// separateAllWires should be run after  all wires are added.
         /// source, target: respectively the output port and input port to which the wire connects.
+//so take in a current sheet with our components and from (source) and to (target) port and return the sheet with the components but with the wire
         let placeWire (source: SymbolPort) (target: SymbolPort) (model: SheetT.Model) : Result<SheetT.Model,string> =
             let symbols = model.Wire.Symbol.Symbols
             let getPortId (portType:PortType) symPort =
@@ -329,8 +373,14 @@ module HLPTick3 =
         fromList [-100..20..100]
         |> map (fun n -> middleOfSheet + {X=float n; Y=0.})
 
+
+    let verticalLinePositions =
+        fromList [-50..10..50]
+        |> map (fun n -> middleOfSheet + {X=0.; Y=float n})
+
     /// demo test circuit consisting of a DFF & And gate
     let makeTest1Circuit (andPos:XYPos) =
+        let rotatedSheetModel = rotateSymbol "G1" Degree90 initSheetModel
         initSheetModel
         |> placeSymbol "G1" (GateN(And,2)) andPos
         |> Result.bind (placeSymbol "FF1" DFF middleOfSheet)
@@ -338,7 +388,21 @@ module HLPTick3 =
         |> Result.bind (placeWire (portOf "FF1" 0) (portOf "G1" 0) )
         |> getOkOrFail
 
-
+    let makeRotateFlipCircuit (rotation: Rotation) (flip:SymbolT.FlipType) (andPos:XYPos) =
+        //let rotation = Degree90
+        //let flip = SymbolT.FlipHorizontal
+        let rotateSym = rotateSymbol "G1" rotation
+        let afterRotate sheet = if true then Ok (rotateSym sheet) else Error "Rotate failed"
+        let flipSym = flipSymbol "G1" flip
+        let afterFlip sheet = if true then Ok (flipSym sheet) else Error "Flip failed"
+        initSheetModel
+        |> placeSymbol "G1" (GateN(And,2)) andPos
+        |> Result.bind(afterRotate)
+        |> Result.bind(afterFlip)
+        |> Result.bind (placeSymbol "FF1" DFF middleOfSheet)
+        |> Result.bind (placeWire (portOf "G1" 0) (portOf "FF1" 0))
+        |> Result.bind (placeWire (portOf "FF1" 0) (portOf "G1" 0) )
+        |> getOkOrFail
 
 //------------------------------------------------------------------------------------------------//
 //-------------------------Example assertions used to test sheets---------------------------------//
@@ -389,6 +453,14 @@ module HLPTick3 =
 //---------------------------------------------------------------------------------------//
 
     module Tests =
+
+        let rotationDegrees = [| Degree0; Degree90; Degree180; Degree270 |]
+        let flipTypes = [|SymbolT.FlipHorizontal; SymbolT.FlipVertical|]
+
+        // Function to pick a random value from an array
+        let pickRandomValue<'T> (array: 'T[]) : 'T =
+            let index = GenerateData.random.Next(array.Length)
+            array.[index]
 
         /// Allow test errors to be viewed in sequence by recording the current error
         /// in the Issie Model (field DrawblockTestState). This contains all Issie persistent state.
@@ -446,6 +518,67 @@ module HLPTick3 =
                 dispatch
             |> recordPositionInTest testNum dispatch
 
+        //output gen<'b> which is XYPos of components in model
+
+        let _, _, AND_H, AND_W = Symbol.getComponentProperties (GateN(And,2)) "G1"
+        let _, _, FF_H, FF_W = Symbol.getComponentProperties DFF "FF1"
+
+        // Assuming the rest of your code defines middleOfSheet, horizLinePositions, and verticalLinePositions correctly
+
+        // Definitions of ANDProp and FFProp assumed to be correct and return tuples where Item3 and Item4 are width and height respectively
+
+        let FFBox = {TopLeft = middleOfSheet + {X = -FF_W/2.0; Y = FF_H/2.0}; W = FF_W; H = FF_H}
+
+        // Define ANDBox to take posXY and return a BoundingBox
+        let ANDBox posXY = {TopLeft = posXY; W = AND_W; H = AND_H}
+
+        // x is assumed to be a list of posXY values
+        let x = GenerateData.product (fun x y -> middleOfSheet + x - y) horizLinePositions verticalLinePositions
+
+        // Function to check if a given posXY results in an ANDBox that overlaps with FFBox
+        let overlapsWithFFBox posXY =
+            let andBox = ANDBox posXY
+            BlockHelpers.overlap2DBox FFBox andBox
+
+        // Filter x based on whether the ANDBox for each posXY overlaps with FFBox
+        let filteredPositions = GenerateData.filter overlapsWithFFBox x
+
+        /// Example test: Horizontally positioned AND + DFF: fail all tests - fail when 2 symbols intersect
+        // Test to make the 2nd component in rectangular region around the 1st component
+        let test5 testNum firstSample dispatch =
+            runTestOnSheets
+                "Circuit of AND + DFF with AND placed around the first component : failed on wire and symbol intersection"
+                firstSample
+                filteredPositions
+                makeTest1Circuit
+                Asserts.failOnWireIntersectsSymbol
+                dispatch
+            |> recordPositionInTest testNum dispatch
+
+        /// Example test: Horizontally positioned AND + DFF: fail all tests - fail when 2 symbols intersect
+        // Test to rotate and flip components
+        let test6 testNum firstSample dispatch =
+        //handles cases which don't work - rounds to nearest rotation - could also do multiple 90 degrees to implement
+            let rotate = 
+                match pickRandomValue rotationDegrees with
+                | Degree0 -> Degree90
+                | Degree180 -> Degree270
+                | x -> x
+            let flip = 
+                match pickRandomValue flipTypes with
+                | SymbolT.FlipVertical -> SymbolT.FlipHorizontal  // Assuming FlipVertical and FlipHorizontal are directly within the FlipType enum
+                | x -> x
+            let makeRotatedFlippedCircuit = makeRotateFlipCircuit rotate flip
+            runTestOnSheets
+                "Circuit of AND + DFF with flip and rotation : failed on wire and symbol intersection"
+                firstSample
+                filteredPositions
+                makeRotatedFlippedCircuit
+                Asserts.failOnWireIntersectsSymbol
+                dispatch
+            |> recordPositionInTest testNum dispatch
+
+
         /// List of tests available which can be run ftom Issie File Menu.
         /// The first 9 tests can also be run via Ctrl-n accelerator keys as shown on menu
         let testsToRunFromSheetMenu : (string * (int -> int -> Dispatch<Msg> -> Unit)) list =
@@ -455,9 +588,10 @@ module HLPTick3 =
                 "Test1", test1 // example
                 "Test2", test2 // example
                 "Test3", test3 // example
-                "Test4", test4 
-                "Test5", fun _ _ _ -> printf "Test5" // dummy test - delete line or replace by real test as needed
-                "Test6", fun _ _ _ -> printf "Test6"
+                "Test4", test4
+                "Test5", test5
+                //"Test5", fun _ _ _ -> printf "Test5" // dummy test - delete line or replace by real test as needed
+                "Test6", test6
                 "Test7", fun _ _ _ -> printf "Test7"
                 "Test8", fun _ _ _ -> printf "Test8"
                 "Next Test Error", fun _ _ _ -> printf "Next Error:" // Go to the nexterror in a test

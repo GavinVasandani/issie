@@ -499,6 +499,28 @@ let smartAutoroute (model: Model) (wire: Wire) : Wire =
 
     let intersectedBoxes = findWireSymbolIntersections model snappedToNetWire 
 
+    ///So instead of just checking if a wire is possible and giving/snapping a corresponding horizontal or vertical segment
+    ///my implementation checks ahead and ensures the next 2 spaces are available and if so then only is a wire snapped
+    ///this pruning reduces situations where we've selected the locally best decision but that ended up being a bad route
+
+(* 
+    match intersectedBoxes.Length with
+    | 0 -> snappedToNetWire
+    | _ when repeats > 0 ->
+        let shiftedVertically = tryShiftVerticalSeg model intersectedBoxes snappedToNetWire
+        let shiftedHorizontally = tryShiftHorizontalSeg maxCallsToShiftHorizontalSeg model intersectedBoxes snappedToNetWire
+
+        match shiftedVertically, shiftedHorizontally with
+        | Some wirePossible, _ | _, Some wirePossible-> tryShiftWire (repeats - 1) wirePossible
+        | None, None -> snappedToNetWire
+    | _ -> snappedToNetWire
+
+    tryShiftWire 2 wire  // Start with 2 attempts to find a better path
+*)
+
+
+    let intersectedBoxes = findWireSymbolIntersections model snappedToNetWire 
+
     match intersectedBoxes.Length with
     | 0 -> snappedToNetWire
     | _ ->
@@ -507,8 +529,8 @@ let smartAutoroute (model: Model) (wire: Wire) : Wire =
             tryShiftHorizontalSeg maxCallsToShiftHorizontalSeg model intersectedBoxes snappedToNetWire
         )
         |> Option.defaultValue snappedToNetWire
-   
 
+   
 
 //-----------------------------------------------------------------------------------------------------------//
 //---------------------------------------------Top-level Wire Routing Functions------------------------------//
